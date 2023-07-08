@@ -41,6 +41,8 @@ void* generateCommaPositionsInThread(void* arg) {
     if(pthread_setaffinity_np(pthread_self(), sizeof(mask), &mask) < 0)
         cout<<"CPU binding failed for thread "<<thread_id<<endl;
     unsigned long* levels = pb_metadata[thread_id].lev_comma_bitmap[level];
+    //find the size of the levels in order to check idx size
+    size_t array_size = sizeof(pb_metadata[thread_id].lev_comma_bitmap[level]) / sizeof(unsigned long);
     if (levels == NULL) {
         return NULL;
     }
@@ -53,7 +55,14 @@ void* generateCommaPositionsInThread(void* arg) {
         unsigned long idx = 0;
         if (thread_id >= 1) idx = i - cur_start_pos;
         else idx = i;
-        commabit = levels[idx];
+        //commabit = levels[idx];
+        //chatgpt generated code for checking if idx is within range
+        if (idx >= 0 && idx < array_size) {
+            commabit = levels[idx];
+        } else {
+            cout << "failed, idx out of range: " << idx << endl; 
+            break;
+        }
         int cnt = __builtin_popcountl(commabit);
         while (commabit) {
             long offset = i * 64 + __builtin_ctzll(commabit);
