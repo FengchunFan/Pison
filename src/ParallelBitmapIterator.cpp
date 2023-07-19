@@ -8,6 +8,7 @@ struct ParallelBitmapMetadata {
     unsigned long* quote_bitmap;
     unsigned long* lev_colon_bitmap[MAX_LEVEL + 1];
     unsigned long* lev_comma_bitmap[MAX_LEVEL + 1];
+    //size_t lev_comma_bitmap_size[MAX_LEVEL + 1]; // New field to store the size
 };
 
 ParallelBitmapMetadata pb_metadata[MAX_THREAD];
@@ -41,8 +42,8 @@ void* generateCommaPositionsInThread(void* arg) {
     if(pthread_setaffinity_np(pthread_self(), sizeof(mask), &mask) < 0)
         cout<<"CPU binding failed for thread "<<thread_id<<endl;
     unsigned long* levels = pb_metadata[thread_id].lev_comma_bitmap[level];
-    //find the size of the levels in order to check idx size
-    size_t array_size = sizeof(pb_metadata[thread_id].lev_comma_bitmap[level]) / sizeof(unsigned long);
+    //find the size of the levels in order to check idx size, not successful
+    //size_t array_size = sizeof(pb_metadata[thread_id].lev_comma_bitmap[level]);
     if (levels == NULL) {
         return NULL;
     }
@@ -55,14 +56,14 @@ void* generateCommaPositionsInThread(void* arg) {
         unsigned long idx = 0;
         if (thread_id >= 1) idx = i - cur_start_pos;
         else idx = i;
-        //commabit = levels[idx];
-        //chatgpt generated code for checking if idx is within range
-        if (idx >= 0 && idx < array_size) {
+        commabit = levels[idx];
+        //cout << "value of idx: " << idx << endl;
+        /*if(idx <= MAX_LEVEL){
             commabit = levels[idx];
-        } else {
-            cout << "failed, idx out of range: " << idx << endl; 
-            break;
-        }
+        }else{
+            cout << "the bit went wrong is: " << idx << ", while array size is: " << MAX_LEVEL - 1 << endl;
+        }*/
+        cout << idx << " " << commabit << endl;
         int cnt = __builtin_popcountl(commabit);
         while (commabit) {
             long offset = i * 64 + __builtin_ctzll(commabit);
@@ -100,6 +101,7 @@ void ParallelBitmapIterator::generateCommaPositionsParallel(long start_pos, long
         comma_pos_info[i].start_pos = start_pos;
         comma_pos_info[i].end_pos = end_pos;
         int rc = pthread_create(&thread[i], NULL, generateCommaPositionsInThread, &thread_args[i]);
+        //int rc = pthread_create(&thread[i], NULL, generateCommaPositionsInThread, &thread_args);
         if (rc)
         {
             cout<<"Thread Error; return code is "<<rc<<endl;
@@ -380,12 +382,12 @@ bool ParallelBitmapIterator::down() {
         return true;
     } else if (mParallelBitmap->mRecord[i] == '[') {
         mCtxInfo[mCurLevel].type = ARRAY;
-        if (mFindDomArray == false && (end_pos - i + 1) > SINGLE_THREAD_MAX_ARRAY_SIZE) {
-            generateCommaPositionsParallel(i, end_pos, mCurLevel, mCtxInfo[mCurLevel].positions, mCtxInfo[mCurLevel].end_idx);
-            mFindDomArray = true;  
-        } else {
+        //if (mFindDomArray == false && (end_pos - i + 1) > SINGLE_THREAD_MAX_ARRAY_SIZE) {
+        //    generateCommaPositionsParallel(i, end_pos, mCurLevel, mCtxInfo[mCurLevel].positions, mCtxInfo[mCurLevel].end_idx);
+        //    mFindDomArray = true;  
+        //} else {
             generateCommaPositions(i, end_pos, mCurLevel, mCtxInfo[mCurLevel].positions, mCtxInfo[mCurLevel].end_idx);
-        }
+        //}
         return true;
     }
     --mCurLevel;
