@@ -1,6 +1,7 @@
 #include "../src/RecordLoader.h"
 #include "../src/BitmapIterator.h"
 #include "../src/BitmapConstructor.h"
+#include <ctime>
 
 // $[*].user.id
 string query(BitmapIterator* iter) {
@@ -23,16 +24,20 @@ string query(BitmapIterator* iter) {
 }
 
 int main() {
+    clock_t start = clock();
+    clock_t start_load = clock();
     char* file_path = "../dataset/twitter_sample_large_record.json";
-    
     Record* rec = RecordLoader::loadSingleRecord(file_path);
     if (rec == NULL) {
         cout<<"record loading fails."<<endl;
         return -1;
     }
+    clock_t end_load = clock();
+    double load_duration = static_cast<double>(end_load - start_load);
+    cout << "time spent loading data were: " << load_duration << " microseconds" << endl;
 
     // set the number of threads for parallel bitmap construction
-    int thread_num = 16;
+    int thread_num = 8;
 
     /* set the number of levels of bitmaps to create, either based on the
      * query or the JSON records. E.g., query $[*].user.id needs three levels 
@@ -40,16 +45,31 @@ int main() {
      */
     int level_num = 3;
 
-    /* process the input record: first build bitmap, then perform 
-     * the query with a bitmap iterator
+    /* process the input record in serial order: first build bitmap,
+     * then perform the query with a bitmap iterator
      */
+    
+    //Bitmap* bm = BitmapConstructor::construct(rec);
+    clock_t start_cons = clock();
     Bitmap* bm = BitmapConstructor::construct(rec, thread_num, level_num);
+    clock_t end_cons = clock();
+    double cons_duration = static_cast<double>(end_cons - start_cons);
+    cout << "time spent constructing bitmap were: " << cons_duration << " microseconds" << endl;
+
+    clock_t start_iter = clock();
     BitmapIterator* iter = BitmapConstructor::getIterator(bm);
+    clock_t end_iter = clock();
+    double iter_duration = static_cast<double>(end_iter - start_iter);
+    cout << "time spent getting iterator were: " << iter_duration << " microseconds" << endl;
+
     string output = query(iter);
     delete iter;
     delete bm;
     delete rec;
 
-    cout<<"matches are: "<<output<<endl;
+    clock_t end = clock();
+    double duration = static_cast<double>(end - start);
+    cout << "total time spent were: " << duration << " microseconds" << endl;
+    cout<<"matches are: "<<output<<endl;    
     return 0;
 }

@@ -1,6 +1,8 @@
 #include "ParallelBitmapIterator.h"
 #include <sys/time.h>
 #include <pthread.h>
+#include <vector>
+#include <algorithm>
 
 struct ParallelBitmapMetadata {
     int start_word_id;
@@ -8,7 +10,6 @@ struct ParallelBitmapMetadata {
     unsigned long* quote_bitmap;
     unsigned long* lev_colon_bitmap[MAX_LEVEL + 1];
     unsigned long* lev_comma_bitmap[MAX_LEVEL + 1];
-    //size_t lev_comma_bitmap_size[MAX_LEVEL + 1]; // New field to store the size
 };
 
 ParallelBitmapMetadata pb_metadata[MAX_THREAD];
@@ -26,13 +27,25 @@ CommaPosInfo comma_pos_info[MAX_THREAD];
 
 int num_of_threads = 1;
 
+//pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+
 void* generateCommaPositionsInThread(void* arg) {
     int thread_id = (int)(*((int*)arg));;
     int level = comma_pos_info[thread_id].level;
     long start_pos = comma_pos_info[thread_id].start_pos;
     long end_pos = comma_pos_info[thread_id].end_pos;
+
+//    pthread_mutex_lock(&mutex);
+    //long* local_comma_positions = new long[MAX_NUM_ELE / num_of_threads + 1];
+    //long local_top_comma_positions = -1;
+
     comma_pos_info[thread_id].comma_positions = new long[MAX_NUM_ELE /num_of_threads + 1];
     comma_pos_info[thread_id].top_comma_positions = -1;
+
+    //comma_pos_info[thread_id].top_comma_positions = local_top_comma_positions;
+    //comma_pos_info[thread_id].comma_positions = local_comma_positions;
+    //pthread_mutex_unlock(&mutex);
+    
     // cout<<"thread "<<thread_id<<" start generating comma positions."<<endl;
     // bind CPU
     cpu_set_t mask;
@@ -57,13 +70,7 @@ void* generateCommaPositionsInThread(void* arg) {
         if (thread_id >= 1) idx = i - cur_start_pos;
         else idx = i;
         commabit = levels[idx];
-        //cout << "value of idx: " << idx << endl;
-        /*if(idx <= MAX_LEVEL){
-            commabit = levels[idx];
-        }else{
-            cout << "the bit went wrong is: " << idx << ", while array size is: " << MAX_LEVEL - 1 << endl;
-        }*/
-        cout << idx << " " << commabit << endl;
+        //cout << idx << " " << commabit << endl;
         int cnt = __builtin_popcountl(commabit);
         while (commabit) {
             long offset = i * 64 + __builtin_ctzll(commabit);
@@ -73,6 +80,7 @@ void* generateCommaPositionsInThread(void* arg) {
             commabit = commabit & (commabit - 1);
         }
     }    
+//    pthread_mutex_unlock(&mutex);
 }
 
 void ParallelBitmapIterator::generateCommaPositionsParallel(long start_pos, long end_pos, int level, long* comma_positions, long& top_comma_positions) {
@@ -101,7 +109,6 @@ void ParallelBitmapIterator::generateCommaPositionsParallel(long start_pos, long
         comma_pos_info[i].start_pos = start_pos;
         comma_pos_info[i].end_pos = end_pos;
         int rc = pthread_create(&thread[i], NULL, generateCommaPositionsInThread, &thread_args[i]);
-        //int rc = pthread_create(&thread[i], NULL, generateCommaPositionsInThread, &thread_args);
         if (rc)
         {
             cout<<"Thread Error; return code is "<<rc<<endl;
@@ -123,6 +130,128 @@ void ParallelBitmapIterator::generateCommaPositionsParallel(long start_pos, long
         free(comma_pos_info[i].comma_positions);
     }
 }
+
+/*
+//pthread_mutex_t mutex;
+
+void* generateCommaPositionsInThread(void* arg) {
+    CommaPosInfo* info = (CommaPosInfo*)arg;
+    int thread_id = info->thread_id;
+    int level = info->level;
+    int start_pos = info->start_pos;
+    int end_pos = info->end_pos;
+    long* comma_positions = new long[end_pos - start_pos + 1]; // Correct size calculation
+    long top_comma_positions = -1;
+
+    // bind CPU
+    cpu_set_t mask;
+    cpu_set_t get;
+    CPU_ZERO(&mask);
+    CPU_SET(thread_id, &mask);
+    if(pthread_setaffinity_np(pthread_self(), sizeof(mask), &mask) < 0)
+        cout<<"CPU binding failed for thread "<<thread_id<<endl;
+
+    // Iterate through the corresponding linked leveled comma bitmaps
+    int cur_chunk = start_pos;
+    while (cur_chunk <= end_pos) {
+        unsigned long* levels = pb_metadata[cur_chunk].lev_comma_bitmap[level];
+        if (levels == NULL) {
+            ++cur_chunk;
+            continue;
+        }
+        unsigned long commabit;
+        long cur_start_pos = pb_metadata[cur_chunk].start_word_id;
+        long cur_end_pos = pb_metadata[cur_chunk].end_word_id;
+        long st = cur_start_pos > (start_pos / 64) ? cur_start_pos : (start_pos / 64);
+        long ed = cur_end_pos < (ceil(double(end_pos) / 64)) ? cur_end_pos : (ceil(double(end_pos) / 64));
+        for (long i = st; i < ed; ++i) {
+            unsigned long idx = 0;
+            if (cur_chunk >= 1) idx = i - cur_start_pos;
+            else idx = i;
+            commabit = levels[idx];
+            int cnt = __builtin_popcountl(commabit);
+            while (commabit) {
+                long offset = i * 64 + __builtin_ctzll(commabit);
+                if (start_pos <= offset && offset <= end_pos) {
+                    comma_positions[++top_comma_positions] = offset;
+                }
+                commabit = commabit & (commabit - 1);
+            }
+        }
+        ++cur_chunk;
+    }
+
+    // Lock the mutex before merging comma_positions into the shared array
+    //pthread_mutex_lock(&mutex);
+    for (int j = 0; j <= info->top_comma_positions; ++j) {
+        info->comma_positions[info->top_comma_positions + j] = info->comma_positions[j];
+    }
+    info->top_comma_positions += info->top_comma_positions + 1;
+    //pthread_mutex_unlock(&mutex);
+
+    return NULL;
+}
+
+void ParallelBitmapIterator::generateCommaPositionsParallel(long start_pos, long end_pos, int level, long* comma_positions, long& top_comma_positions) {
+    // Find starting and ending chunks in linked leveled comma bitmaps
+    int start_chunk = -1;
+    int end_chunk = -1;
+    int chunk_num = 10; // Replace this with the actual value from mParallelBitmap->mThreadNum
+    for (int i = 0; i < chunk_num; ++i) {
+        if (pb_metadata[i].start_word_id <= (start_pos / 64)) {
+            start_chunk = i;
+        }
+        if (pb_metadata[i].end_word_id >= (ceil(double(end_pos) / 64)) && end_chunk == -1) {
+            end_chunk = i;
+        }
+        if (start_chunk > -1 && end_chunk > -1) break;
+    }
+
+    if (start_chunk == 0 && end_chunk == -1) end_chunk = 0;
+    // Initialize mutex
+    //pthread_mutex_init(&mutex, NULL);
+
+    // Prepare thread-related data
+    int num_threads = std::min(MAX_THREAD, end_chunk - start_chunk + 1);
+    int chunks_per_thread = (end_chunk - start_chunk + 1) / num_threads;
+    int remaining_chunks = (end_chunk - start_chunk + 1) % num_threads;
+
+    // Create and start threads
+    pthread_t threads[MAX_THREAD];
+    CommaPosInfo comma_pos_info[MAX_THREAD];
+
+    for (int i = 0; i < num_threads; ++i) {
+        int start_chunk_idx = start_chunk + i * chunks_per_thread;
+        int end_chunk_idx = start_chunk + (i + 1) * chunks_per_thread - 1;
+
+        if (i == num_threads - 1) {
+            end_chunk_idx += remaining_chunks;
+        }
+
+        comma_pos_info[i].thread_id = i;
+        comma_pos_info[i].level = level;
+        comma_pos_info[i].start_pos = start_chunk_idx;
+        comma_pos_info[i].end_pos = end_chunk_idx;
+        comma_pos_info[i].comma_positions = comma_positions;
+        comma_pos_info[i].top_comma_positions = top_comma_positions;
+
+        pthread_create(&threads[i], NULL, generateCommaPositionsInThread, (void*)&comma_pos_info[i]);
+    }
+
+    // Wait for all threads to finish
+    for (int i = 0; i < num_threads; ++i) {
+        pthread_join(threads[i], NULL);
+    }
+
+    // Update the top_comma_positions after merging all threads' results
+    for (int i = 0; i < num_threads; ++i) {
+        top_comma_positions = comma_pos_info[i].top_comma_positions;
+    }
+
+    // Destroy the mutex
+    //pthread_mutex_destroy(&mutex);
+}
+*/
 
 // Saving metadata of linked leveled bitmap in consecutive order can further improve the performance.
 void ParallelBitmapIterator::gatherParallelBitmapInfo() {
@@ -220,6 +349,7 @@ void ParallelBitmapIterator::generateCommaPositions(long start_pos, long end_pos
             if (cur_chunk >= 1) idx = i - cur_start_pos;
             else idx = i;
             commabit = levels[idx];
+            //cout << idx << ' ' << commabit << endl; //testing purposes
             int cnt = __builtin_popcountl(commabit);
             while (commabit) {
                 long offset = i * 64 + __builtin_ctzll(commabit);
@@ -382,12 +512,12 @@ bool ParallelBitmapIterator::down() {
         return true;
     } else if (mParallelBitmap->mRecord[i] == '[') {
         mCtxInfo[mCurLevel].type = ARRAY;
-        //if (mFindDomArray == false && (end_pos - i + 1) > SINGLE_THREAD_MAX_ARRAY_SIZE) {
-        //    generateCommaPositionsParallel(i, end_pos, mCurLevel, mCtxInfo[mCurLevel].positions, mCtxInfo[mCurLevel].end_idx);
-        //    mFindDomArray = true;  
-        //} else {
+        if (mFindDomArray == false && (end_pos - i + 1) > SINGLE_THREAD_MAX_ARRAY_SIZE) {
+            generateCommaPositionsParallel(i, end_pos, mCurLevel, mCtxInfo[mCurLevel].positions, mCtxInfo[mCurLevel].end_idx);
+            mFindDomArray = true;  
+        } else {
             generateCommaPositions(i, end_pos, mCurLevel, mCtxInfo[mCurLevel].positions, mCtxInfo[mCurLevel].end_idx);
-        //}
+        }
         return true;
     }
     --mCurLevel;

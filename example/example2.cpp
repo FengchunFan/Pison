@@ -43,6 +43,19 @@ int main() {
         return -1;
     }
 
+    //int thread_num = 16;
+
+    /* set the number of levels of bitmaps to create, either based on the
+     * query or the JSON records. E.g., query $[*].user.id needs three levels 
+     * (level 0, 1, 2), but the record may be of more than three levels
+     */
+    //int level_num = 3;
+
+    /* process the input record in serial order: first build bitmap,
+     * then perform the query with a bitmap iterator
+     */
+    //Bitmap* bm = BitmapConstructor::construct(rec, thread_num, level_num);
+
     /* process the input record in serial order: first build bitmap,
      * then perform the query with a bitmap iterator
      */
