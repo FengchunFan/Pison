@@ -35,7 +35,7 @@ string query(BitmapIterator* iter) {
 int main() {
     clock_t start = clock();
     clock_t start_load = clock();
-    char* file_path = "../dataset/twitter_sample_small_records.json";
+    char* file_path = "../dataset/twitter_small_records.json";
     RecordSet* record_set = RecordLoader::loadRecords(file_path);
     if (record_set->size() == 0) {
         cout<<"record loading fails."<<endl;
@@ -82,6 +82,7 @@ int main() {
     clock_t end = clock();
     double duration = static_cast<double>(end - start);
     cout << "time spent were: " << duration << " microseconds" << endl;
-    cout<<"matches are: "<<output<<endl;
+    //cout<<"matches are: "<<output<<endl;
+    cout << "matches are: " << output[0] << " " << output[1] << endl; //for larger record
     return 0;
 }
