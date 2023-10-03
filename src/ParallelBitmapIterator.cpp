@@ -80,6 +80,7 @@ void* generateCommaPositionsInThread(void* arg) {
             commabit = commabit & (commabit - 1);
         }
     }    
+    return NULL; //fix seg fault
 //    pthread_mutex_unlock(&mutex);
 }
 
